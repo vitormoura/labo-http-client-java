@@ -9,7 +9,6 @@ import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Vector;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import static org.apache.http.HttpHeaders.CONTENT_TYPE;
@@ -19,7 +18,6 @@ import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.bouncycastle.asn1.ASN1InputStream;
-import org.bouncycastle.asn1.BEROctetString;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.ocsp.OCSPObjectIdentifiers;
@@ -30,8 +28,6 @@ import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 
 import org.bouncycastle.asn1.x509.GeneralName;
-import org.bouncycastle.asn1.x509.X509Extension;
-import org.bouncycastle.asn1.x509.X509Extensions;
 import org.bouncycastle.asn1.x509.X509ObjectIdentifiers;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.ocsp.BasicOCSPResp;
@@ -47,6 +43,7 @@ import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 /**
  *
  * @author darkflammeus
+ * @see https://github.com/wso2-extensions/identity-x509-commons/blob/743a9a1852c4462d4b142dca1db81ea8fd764b74/components/validation/src/main/java/org/wso2/carbon/identity/x509Certificate/validation/CertificateValidationUtil.java
  */
 public abstract class CertificateUtils {
 
