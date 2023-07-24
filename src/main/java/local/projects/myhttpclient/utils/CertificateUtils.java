@@ -74,6 +74,8 @@ public abstract class CertificateUtils {
                 responses = (basicResponse == null) ? null : basicResponse.getResponses();
 
             } catch (Exception e) {
+                logger.log(Level.WARNING, "Error while checking {}", serviceUrl);
+                logger.log(Level.WARNING, e.getMessage());
                 continue;
             }
 
