@@ -3,16 +3,10 @@
  */
 package local.projects.myhttpclient;
 
-import java.io.BufferedOutputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
@@ -47,12 +41,6 @@ import org.apache.http.impl.conn.DefaultProxyRoutePlanner;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.ssl.SSLContexts;
 import org.apache.http.util.EntityUtils;
-import org.bouncycastle.cert.X509CertificateHolder;
-import org.bouncycastle.cert.ocsp.OCSPException;
-import org.bouncycastle.cert.ocsp.OCSPReq;
-import org.bouncycastle.cert.ocsp.OCSPResp;
-import org.bouncycastle.operator.DigestCalculatorProvider;
-import org.bouncycastle.operator.OperatorCreationException;
 import local.projects.myhttpclient.utils.CertificateUtils;
 
 /**
@@ -202,14 +190,13 @@ public class MyHttpClient {
                 File keystoreFile = new File(cmd.getOptionValue(OPT_KS_FILEPATH));
 
                 if (!keystoreFile.exists()) {
-                    System.err.println("Invalid keystore path: " + keystoreFile.getAbsolutePath());
+                    System.err.println("invalid keystore path: " + keystoreFile.getAbsolutePath());
                     return;
                 }
 
                 sslContextBuilder.loadTrustMaterial(
                         keystoreFile,
-                        cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD).toCharArray() : null,
-                        new TrustSelfSignedStrategy()
+                        cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD).toCharArray() : null
                 );
             }
 
@@ -271,26 +258,24 @@ public class MyHttpClient {
 
         X509Certificate cert;
         X509Certificate issuerCert;
-                
+
         String certPath = cmd.getOptionValue(OPT_CERT_FILEPATH);
         String issuerPath = cmd.getOptionValue(OPT_CERTCHAIN_FILEPATH);
 
         try {
             cert = getCertificate(certPath);
             issuerCert = getCertificate(issuerPath);
-            
+
             List<String> ocspUrls = CertificateUtils.getAIALocations(cert);
-                                   
-            
+
             // OCSP Request
             Object result = CertificateUtils.getRevocationStatus(cert, issuerCert, 0, ocspUrls);
-            
-            
+
             System.out.println(result);
 
         } catch (Exception ex) {
-            logger.log(Level.SEVERE, "une erreur s'est produite lors du test OCSP",ex);
-        }            
+            logger.log(Level.SEVERE, "une erreur s'est produite lors du test OCSP", ex);
+        }
 
     }
 
@@ -323,6 +308,6 @@ public class MyHttpClient {
         logger.log(Level.INFO, "certificat charg\u00e9: {0} ({1})", new String[]{targetCertFile, targetCert.getSubjectDN().getName()});
 
         return targetCert;
-    }    
-    
+    }
+
 }

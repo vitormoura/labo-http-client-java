@@ -162,18 +162,14 @@ public abstract class CertificateUtils {
             OCSPReqBuilder builder = new OCSPReqBuilder();
             builder.addRequest(id);
 
-            ///*
-            // create details for nonce extension. The nonce extension is used to bind a request to a response to
-            // prevent replay attacks. As the name implies, the nonce value is something that the client should only
-            // use once within a reasonably small period.
-            // create the request Extension
+            /*
             Extensions reqExtensions = new Extensions(new Extension[]{
                 new Extension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce, false, new DEROctetString(BigInteger.valueOf(System.currentTimeMillis()).toByteArray()))
             });
                         
             builder.setRequestExtensions(reqExtensions);
-
             //*/
+            
             return builder.build();
 
         } catch (Exception e) {
