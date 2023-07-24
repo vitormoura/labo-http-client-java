@@ -85,7 +85,7 @@ public abstract class CertificateUtils {
         }
 
         throw new Exception("Cant get Revocation Status from OCSP using any of the OCSP Urls "
-                + "for certificate with serial num:" + peerCert.getSerialNumber());
+                + "for certificate with serial num:" + peerCert.getSerialNumber() + " (" + peerCert.getSubjectDN() + ")");
     }
 
     private static OCSPResp getOCSPResponse(String serviceUrl, OCSPReq request, int retryCount)
@@ -201,7 +201,7 @@ public abstract class CertificateUtils {
 
         if (ocspUrlList.isEmpty()) {
             throw new Exception("Cant get OCSP urls from certificate with serial num: "
-                    + cert.getSerialNumber());
+                    + cert.getSerialNumber() + " (" + cert.getSubjectDN() + " )");
         }
 
         return ocspUrlList;

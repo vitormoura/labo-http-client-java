@@ -279,7 +279,7 @@ public class MyHttpClient {
             cert = getCertificate(certPath);
             issuerCert = getCertificate(issuerPath);
             
-            List<String> ocspUrls = CertificateUtils.getAIALocations(issuerCert);
+            List<String> ocspUrls = CertificateUtils.getAIALocations(cert);
                                    
             
             // OCSP Request
