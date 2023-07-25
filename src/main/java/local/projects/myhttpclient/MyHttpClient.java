@@ -42,6 +42,7 @@ import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.ssl.SSLContexts;
 import org.apache.http.util.EntityUtils;
 import local.projects.myhttpclient.utils.CertificateUtils;
+import local.projects.myhttpclient.utils.SSLCertificateExtractor;
 
 /**
  *
@@ -50,6 +51,8 @@ import local.projects.myhttpclient.utils.CertificateUtils;
 public class MyHttpClient {
 
     static final String OPT_CMD = "cmd";
+    static final String OPT_URL = "url";
+    static final String OPT_HOSTPORT = "host";
     static final String OPT_CERTCHAIN_FILEPATH = "certchain_filepath";
     static final String OPT_CERT_FILEPATH = "cert_filepath";
     static final String OPT_KS_FILEPATH = "keystore_filepath";
@@ -61,11 +64,14 @@ public class MyHttpClient {
     public static void main(String[] args) throws ParseException {
 
         Options options;
+        
+        
 
         // Command arg options
         options = new Options();
         options.addRequiredOption("c", "cmd", true, "command to execute")
-                .addOption("u", "url", true, "test url")
+                .addOption(OPT_URL, true, "test url")
+                .addOption(OPT_HOSTPORT, true, "host")
                 .addOption(OPT_CERT_FILEPATH, true, "path to certificate")
                 .addOption(OPT_CERTCHAIN_FILEPATH, true, "path to certificate ca chain")
                 .addOption(OPT_KS_FILEPATH, true, "path to certificate keystore")
@@ -89,11 +95,24 @@ public class MyHttpClient {
             case "cert:ocsp":
                 execCertCheckOCSP(cmd);
                 break;
+                
+            case "cert:download":
+                execCertDownload(cmd);
+                break;
 
             default:
                 System.err.println("ERR invalid command: " + cmdToExec);
         }
 
+    }
+    
+    public static void execCertDownload(CommandLine cmd) {
+        mustHaveRequiredArgs(cmd, new String[]{OPT_HOSTPORT});
+        
+        String url = cmd.getOptionValue(OPT_HOSTPORT);
+        
+        SSLCertificateExtractor extractor = new SSLCertificateExtractor(url);
+        extractor.run();        
     }
 
     public static void execCertCheck(CommandLine cmd) {
@@ -115,15 +134,9 @@ public class MyHttpClient {
         //
         // Valide arguments obligatoires
         //
-        String[] requiredArgs = new String[]{OPT_KS_FILEPATH, OPT_CERT_FILEPATH};
-
-        for (String arg : requiredArgs) {
-            if (!cmd.hasOption(arg)) {
-                System.err.println("required argument: " + arg);
-                System.exit(1);
-            }
-        }
-
+        
+        mustHaveRequiredArgs(cmd, new String[]{OPT_KS_FILEPATH, OPT_CERT_FILEPATH});
+        
         // 
         // Arguments
         //
@@ -240,7 +253,7 @@ public class MyHttpClient {
 
                     logger.log(Level.INFO, "http response {0}", response.getStatusLine());
 
-                    System.out.println(EntityUtils.toString(entity));
+                    //System.out.println(EntityUtils.toString(entity));
 
                 } finally {
                     response.close();
@@ -308,6 +321,16 @@ public class MyHttpClient {
         logger.log(Level.INFO, "certificat charg\u00e9: {0} ({1})", new String[]{targetCertFile, targetCert.getSubjectDN().getName()});
 
         return targetCert;
+    }
+    
+    private static void mustHaveRequiredArgs(CommandLine cmd, String[] requiredArgs) {
+         
+        for (String arg : requiredArgs) {
+            if (!cmd.hasOption(arg)) {
+                System.err.println("required argument: " + arg);
+                System.exit(1);
+            }
+        }
     }
 
 }
