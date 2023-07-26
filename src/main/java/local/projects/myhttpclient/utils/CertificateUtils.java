@@ -5,9 +5,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
 import java.security.Provider;
+import java.security.SecureRandom;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -18,8 +20,11 @@ import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.bouncycastle.asn1.ASN1InputStream;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.ASN1Sequence;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.DEROctetString;
+import org.bouncycastle.asn1.DLTaggedObject;
 import org.bouncycastle.asn1.ocsp.OCSPObjectIdentifiers;
 import org.bouncycastle.asn1.ocsp.OCSPResponseStatus;
 import org.bouncycastle.asn1.x509.AccessDescription;
@@ -30,12 +35,14 @@ import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.X509ObjectIdentifiers;
 import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
 import org.bouncycastle.cert.ocsp.BasicOCSPResp;
 import org.bouncycastle.cert.ocsp.CertificateID;
 import org.bouncycastle.cert.ocsp.CertificateStatus;
 import org.bouncycastle.cert.ocsp.OCSPReq;
 import org.bouncycastle.cert.ocsp.OCSPReqBuilder;
 import org.bouncycastle.cert.ocsp.OCSPResp;
+import org.bouncycastle.cert.ocsp.RevokedStatus;
 import org.bouncycastle.cert.ocsp.SingleResp;
 import org.bouncycastle.operator.DigestCalculatorProvider;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
@@ -43,13 +50,14 @@ import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 /**
  *
  * @author darkflammeus
- * @see https://github.com/wso2-extensions/identity-x509-commons/blob/743a9a1852c4462d4b142dca1db81ea8fd764b74/components/validation/src/main/java/org/wso2/carbon/identity/x509Certificate/validation/CertificateValidationUtil.java
+ * @see
+ * https://github.com/wso2-extensions/identity-x509-commons/blob/743a9a1852c4462d4b142dca1db81ea8fd764b74/components/validation/src/main/java/org/wso2/carbon/identity/x509Certificate/validation/CertificateValidationUtil.java
  */
 public abstract class CertificateUtils {
 
     static final Logger logger = Logger.getLogger(CertificateUtils.class.getName());
 
-    public static CertificateStatus getRevocationStatus(X509Certificate peerCert, X509Certificate issuerCert,
+    public static String getRevocationStatus(X509Certificate peerCert, X509Certificate issuerCert,
             int retryCount, List<String> locations)
             throws Exception {
 
@@ -85,7 +93,7 @@ public abstract class CertificateUtils {
         }
 
         throw new Exception("Cant get Revocation Status from OCSP using any of the OCSP Urls "
-                + "for certificate with serial num:" + peerCert.getSerialNumber() + " (" + peerCert.getSubjectDN() + ")");
+                + "for certificate with serial num:" + peerCert.getSerialNumber().toString(16) + " (" + peerCert.getSubjectDN() + ")");
     }
 
     private static OCSPResp getOCSPResponse(String serviceUrl, OCSPReq request, int retryCount)
@@ -111,6 +119,7 @@ public abstract class CertificateUtils {
             InputStream in = httpResponse.getEntity().getContent();
 
             ocspResp = new OCSPResp(in);
+
         } catch (IOException e) {
             if (retryCount == 0) {
                 throw new Exception("Cannot get ocspResponse from url: " + serviceUrl, e);
@@ -162,6 +171,12 @@ public abstract class CertificateUtils {
             OCSPReqBuilder builder = new OCSPReqBuilder();
             builder.addRequest(id);
 
+            Extensions reqExtensions = new Extensions(new Extension[]{
+                new Extension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce, false, buildNonceOctetString())
+            });
+
+            builder.setRequestExtensions(reqExtensions);
+
             /*
             Extensions reqExtensions = new Extensions(new Extension[]{
                 new Extension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce, false, new DEROctetString(BigInteger.valueOf(System.currentTimeMillis()).toByteArray()))
@@ -178,11 +193,21 @@ public abstract class CertificateUtils {
         }
     }
 
-    private static CertificateStatus getRevocationStatusFromOCSP(SingleResp resp) {
-        return resp.getCertStatus();
+    private static String getRevocationStatusFromOCSP(SingleResp resp) {
+        CertificateStatus status = resp.getCertStatus();
+
+        if (null == status) {
+            return "good";
+        }
+
+        if (status instanceof RevokedStatus) {
+            return "revoked";
+        }
+
+        return status.toString();
     }
 
-    public static List<String> getAIALocations(X509Certificate cert) throws Exception {
+    private static List<String> getAIALocationsV0(X509Certificate cert) throws Exception {
 
         List<String> ocspUrlList;
         byte[] aiaExtensionValue = getAiaExtensionValue(cert);
@@ -201,6 +226,58 @@ public abstract class CertificateUtils {
         }
 
         return ocspUrlList;
+    }
+
+    public static List<String> getAIALocations(X509Certificate cert) {
+        byte[] aiaExtension = cert.getExtensionValue(Extension.authorityInfoAccess.getId());
+        ArrayList<String> result = new ArrayList<>();
+
+        if (aiaExtension == null) {
+            logger.log(Level.WARNING, "no authorityInfoAccess extension in the certificate ");
+            return result;
+        }
+
+        ASN1Sequence aiaExtSeq;
+
+        try {
+            aiaExtSeq = (ASN1Sequence) JcaX509ExtensionUtils.parseExtensionValue(aiaExtension);
+        } catch (IOException ex) {
+            logger.log(Level.WARNING, "error while parsing extension value", ex);
+            return result;
+        }
+
+        for (Enumeration<ASN1Sequence> aiaSequences = aiaExtSeq.getObjects(); aiaSequences.hasMoreElements();) {
+            ASN1Sequence aiaSequenceObj = aiaSequences.nextElement();
+            if (aiaSequenceObj.size() < 2) {
+                continue;
+            }
+
+            ASN1ObjectIdentifier aiaSequenceObjID = (ASN1ObjectIdentifier) aiaSequenceObj.getObjectAt(0);
+            if (!aiaSequenceObjID.equals(X509ObjectIdentifiers.id_ad_ocsp)) {
+                continue;
+            }
+
+            //DERTaggedObject aiaSequenceObjValue = (DERTaggedObject) aiaSequenceObj.getObjectAt(1);
+            DLTaggedObject aiaSequenceObjValue = (DLTaggedObject) aiaSequenceObj.getObjectAt(1);
+
+            if (aiaSequenceObjValue.getTagNo() != 6) {
+                continue;
+            }
+
+            var aiaURI = (DEROctetString) aiaSequenceObjValue.getBaseObject();
+
+            if (aiaURI == null) {
+                continue;
+            }
+            
+            String aiaURIString = new String(aiaURI.getOctets());
+
+            logger.log(Level.INFO, "AIA location found: {0}", aiaURIString);
+            
+            result.add(aiaURIString);
+        }
+
+        return result;
     }
 
     private static List<String> getOcspUrlsFromAuthorityInfoAccess(AuthorityInformationAccess authorityInformationAccess) {
@@ -250,5 +327,13 @@ public abstract class CertificateUtils {
 
         //Gets the DER-encoded OCTET string for the extension value for Authority information access Points
         return cert.getExtensionValue(Extension.authorityInfoAccess.getId());
+    }
+
+    private static DEROctetString buildNonceOctetString() throws IOException {
+        byte[] nonce = new byte[20];
+        SecureRandom recRandom = new SecureRandom();
+        recRandom.nextBytes(nonce);
+
+        return new DEROctetString((new DEROctetString(nonce)).getEncoded());
     }
 }

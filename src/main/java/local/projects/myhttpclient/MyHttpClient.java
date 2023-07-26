@@ -33,7 +33,6 @@ import org.apache.http.HttpHost;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.conn.ssl.TrustSelfSignedStrategy;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
@@ -238,28 +237,19 @@ public class MyHttpClient {
                 httpClientBuilder.setRoutePlanner(routePlanner);
             }
 
-            CloseableHttpClient httpclient = httpClientBuilder.build();
-
-            try {
+            try (CloseableHttpClient httpclient = httpClientBuilder.build()) {
 
                 HttpGet httpget = new HttpGet(cmd.getOptionValue("url"));
 
                 logger.log(Level.INFO, "executing {0}", httpget.getRequestLine());
 
-                CloseableHttpResponse response = httpclient.execute(httpget);
-
-                try {
+                try (CloseableHttpResponse response = httpclient.execute(httpget)) {
                     HttpEntity entity = response.getEntity();
 
                     logger.log(Level.INFO, "http response {0}", response.getStatusLine());
 
-                    //System.out.println(EntityUtils.toString(entity));
-
-                } finally {
-                    response.close();
+                    System.out.println(EntityUtils.toString(entity));
                 }
-            } finally {
-                httpclient.close();
             }
 
         } catch (IOException | NoSuchAlgorithmException | KeyStoreException | CertificateException | KeyManagementException ex) {
@@ -269,6 +259,8 @@ public class MyHttpClient {
 
     public static void execCertCheckOCSP(CommandLine cmd) {
 
+        mustHaveRequiredArgs(cmd, new String[] { OPT_CERT_FILEPATH, OPT_CERTCHAIN_FILEPATH});
+        
         X509Certificate cert;
         X509Certificate issuerCert;
 
@@ -276,15 +268,19 @@ public class MyHttpClient {
         String issuerPath = cmd.getOptionValue(OPT_CERTCHAIN_FILEPATH);
 
         try {
+            
             cert = getCertificate(certPath);
             issuerCert = getCertificate(issuerPath);
 
             List<String> ocspUrls = CertificateUtils.getAIALocations(cert);
 
             // OCSP Request
-            Object result = CertificateUtils.getRevocationStatus(cert, issuerCert, 0, ocspUrls);
+            Object result = CertificateUtils.getRevocationStatus(cert, issuerCert, 1, ocspUrls);
 
-            System.out.println(result);
+            // Result
+            System.out.printf("Subject: %s\n", issuerCert.getSubjectDN());
+            System.out.printf("SerialNumber: %s\n", issuerCert.getSerialNumber().toString(16));
+            System.out.printf("OCSP status: %s\n", result);
 
         } catch (Exception ex) {
             logger.log(Level.SEVERE, "une erreur s'est produite lors du test OCSP", ex);
