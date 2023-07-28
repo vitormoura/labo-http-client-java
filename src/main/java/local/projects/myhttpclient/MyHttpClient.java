@@ -7,7 +7,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.security.KeyManagementException;
+import java.net.URL;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
@@ -22,25 +22,13 @@ import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.net.ssl.SSLContext;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpHost;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.impl.conn.DefaultProxyRoutePlanner;
-import org.apache.http.ssl.SSLContextBuilder;
-import org.apache.http.ssl.SSLContexts;
-import org.apache.http.util.EntityUtils;
 import local.projects.myhttpclient.utils.CertificateUtils;
+import local.projects.myhttpclient.utils.HttpProxyConfig;
 import local.projects.myhttpclient.utils.SSLCertificateExtractor;
 
 /**
@@ -61,10 +49,8 @@ public class MyHttpClient {
     static final Logger logger = Logger.getLogger(MyHttpClient.class.getName());
 
     public static void main(String[] args) throws ParseException {
-
+        
         Options options;
-        
-        
 
         // Command arg options
         options = new Options();
@@ -82,6 +68,8 @@ public class MyHttpClient {
         CommandLine cmd = parser.parse(options, args);
         String cmdToExec = cmd.getOptionValue(OPT_CMD).toLowerCase();
 
+        logger.log(Level.INFO,"running {0} command", cmdToExec);
+        
         switch (cmdToExec) {
             case "http:get":
                 execHttpGetRequest(cmd);
@@ -193,67 +181,39 @@ public class MyHttpClient {
     }
 
     public static void execHttpGetRequest(CommandLine cmd) {
+        
+        mustHaveRequiredArgs(cmd, new String[] { OPT_URL });
+        
         try {
 
-            SSLContextBuilder sslContextBuilder = SSLContexts.custom();
-
+            var client = new local.projects.myhttpclient.utils.MyHttpClient();
+            HttpProxyConfig proxyConf = null;
+                        
             if (cmd.hasOption(OPT_KS_FILEPATH) && cmd.hasOption(OPT_KS_PASSWORD)) {
-
-                File keystoreFile = new File(cmd.getOptionValue(OPT_KS_FILEPATH));
-
-                if (!keystoreFile.exists()) {
-                    System.err.println("invalid keystore path: " + keystoreFile.getAbsolutePath());
-                    return;
-                }
-
-                sslContextBuilder.loadTrustMaterial(
-                        keystoreFile,
-                        cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD).toCharArray() : null
-                );
+                
+                String ksFilepath = cmd.getOptionValue(OPT_KS_FILEPATH);
+                String ksPassword = cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD) : null;
+                
+                KeyStore store = getKeyStore(ksFilepath, ksPassword);
+                                                
+                client.setKeyStore(store);
             }
-
-            SSLContext sslcontext;
-            sslcontext = sslContextBuilder.build();
-
-            SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
-                    sslcontext,
-                    null,
-                    null,
-                    SSLConnectionSocketFactory.getDefaultHostnameVerifier()
-            );
-
-            HttpClientBuilder httpClientBuilder = HttpClients.custom().setSSLSocketFactory(sslsf);
 
             // Proxy
             if (cmd.hasOption(OPT_PROXY_HOST)) {
                 String proxyHost = cmd.getOptionValue(OPT_PROXY_HOST);
-                String proxyPort = cmd.getOptionValue(OPT_PROXY_PORT, "8080");
+                int proxyPort = Integer.parseInt(cmd.getOptionValue(OPT_PROXY_PORT, "8080"));
 
-                logger.log(Level.INFO, "using proxy config: {0}:{1}", new Object[]{proxyHost, proxyPort});
-
-                HttpHost proxy = new HttpHost(proxyHost, Integer.parseInt(proxyPort));
-                DefaultProxyRoutePlanner routePlanner = new DefaultProxyRoutePlanner(proxy);
-
-                httpClientBuilder.setRoutePlanner(routePlanner);
+                proxyConf = new HttpProxyConfig(proxyPort, proxyHost);                
             }
 
-            try (CloseableHttpClient httpclient = httpClientBuilder.build()) {
+            String response = client.get(new URL(cmd.getOptionValue(OPT_URL)), proxyConf);
+            
+            System.out.println(response);
+            
 
-                HttpGet httpget = new HttpGet(cmd.getOptionValue("url"));
-
-                logger.log(Level.INFO, "executing {0}", httpget.getRequestLine());
-
-                try (CloseableHttpResponse response = httpclient.execute(httpget)) {
-                    HttpEntity entity = response.getEntity();
-
-                    logger.log(Level.INFO, "http response {0}", response.getStatusLine());
-
-                    System.out.println(EntityUtils.toString(entity));
-                }
-            }
-
-        } catch (IOException | NoSuchAlgorithmException | KeyStoreException | CertificateException | KeyManagementException ex) {
-            logger.log(Level.SEVERE, null, ex);
+        } catch (Exception ex) {
+            logger.log(Level.SEVERE, "error while executing http request: " + ex.getMessage(),  ex);
         }
     }
 
@@ -261,7 +221,7 @@ public class MyHttpClient {
 
         mustHaveRequiredArgs(cmd, new String[] { OPT_CERT_FILEPATH, OPT_CERTCHAIN_FILEPATH});
         
-        X509Certificate cert;
+        X509Certificate peerCert;
         X509Certificate issuerCert;
 
         String certPath = cmd.getOptionValue(OPT_CERT_FILEPATH);
@@ -269,17 +229,17 @@ public class MyHttpClient {
 
         try {
             
-            cert = getCertificate(certPath);
+            peerCert = getCertificate(certPath);
             issuerCert = getCertificate(issuerPath);
 
-            List<String> ocspUrls = CertificateUtils.getAIALocations(cert);
+            List<String> ocspUrls = CertificateUtils.getAIALocations(peerCert);
 
             // OCSP Request
-            Object result = CertificateUtils.getRevocationStatus(cert, issuerCert, 1, ocspUrls);
+            Object result = CertificateUtils.getRevocationStatus(peerCert, issuerCert, 1, ocspUrls);
 
             // Result
-            System.out.printf("Subject: %s\n", issuerCert.getSubjectDN());
-            System.out.printf("SerialNumber: %s\n", issuerCert.getSerialNumber().toString(16));
+            System.out.printf("Subject: %s\n", peerCert.getSubjectDN());
+            System.out.printf("SerialNumber: %s\n", peerCert.getSerialNumber().toString(16));
             System.out.printf("OCSP status: %s\n", result);
 
         } catch (Exception ex) {
@@ -297,7 +257,7 @@ public class MyHttpClient {
             char[] keystorePasswordChars = keyStorePassword != null ? keyStorePassword.toCharArray() : null;
             keyStore = KeyStore.getInstance(certStoreFile, keystorePasswordChars);
 
-            logger.log(Level.INFO, "keystore charg\u00e9: {0}", keyStoreFilePath);
+            logger.log(Level.INFO, "keystore loaded: {0}", keyStoreFilePath);
 
             return keyStore;
 
@@ -328,5 +288,4 @@ public class MyHttpClient {
             }
         }
     }
-
 }
