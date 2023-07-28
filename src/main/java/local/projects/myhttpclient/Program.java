@@ -27,7 +27,7 @@ import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import local.projects.myhttpclient.utils.CertificateUtils;
+import local.projects.myhttpclient.utils.MyOcspChecker;
 import local.projects.myhttpclient.utils.HttpProxyConfig;
 import local.projects.myhttpclient.utils.SSLCertificateExtractor;
 
@@ -49,7 +49,7 @@ public class Program {
     static final Logger logger = Logger.getLogger(Program.class.getName());
 
     public static void main(String[] args) throws ParseException {
-        
+
         Options options;
 
         // Command arg options
@@ -65,41 +65,56 @@ public class Program {
                 .addOption(OPT_PROXY_PORT, true, "proxy port (default 8080)");
 
         CommandLineParser parser = new DefaultParser();
-        CommandLine cmd = parser.parse(options, args);
-        String cmdToExec = cmd.getOptionValue(OPT_CMD).toLowerCase();
+        CommandLine commandLine = parser.parse(options, args);
+        String commandName = commandLine.getOptionValue(OPT_CMD).toLowerCase();
 
-        logger.log(Level.INFO,"running {0} command", cmdToExec);
-        
-        switch (cmdToExec) {
+        logger.log(Level.INFO, "running {0} command", commandName);
+
+        switch (commandName) {
             case "http:get":
-                execHttpGetRequest(cmd);
+                execHttpGetRequest(commandLine);
                 break;
 
             case "cert:check":
-                execCertCheck(cmd);
+                execCertCheck(commandLine);
                 break;
 
             case "cert:ocsp":
-                execCertCheckOCSP(cmd);
+                execCertCheckOCSP(commandLine);
                 break;
-                
+
             case "cert:download":
-                execCertDownload(cmd);
+                execCertDownload(commandLine);
                 break;
 
             default:
-                System.err.println("ERR invalid command: " + cmdToExec);
+                System.err.println("invalid command: " + commandName);
+                System.exit(-1);
         }
 
     }
-    
+
     public static void execCertDownload(CommandLine cmd) {
         mustHaveRequiredArgs(cmd, new String[]{OPT_HOSTPORT});
-        
-        String url = cmd.getOptionValue(OPT_HOSTPORT);
-        
-        SSLCertificateExtractor extractor = new SSLCertificateExtractor(url);
-        extractor.run();        
+
+        try {
+
+            String url = cmd.getOptionValue(OPT_HOSTPORT);
+            SSLCertificateExtractor extractor = new SSLCertificateExtractor(url);
+            KeyStore keyStore = null;
+
+            if (hasKeyStoreParams(cmd)) {
+                String ksFilepath = cmd.getOptionValue(OPT_KS_FILEPATH);
+                String ksPassword = cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD) : null;
+
+                keyStore = getKeyStore(ksFilepath, ksPassword);
+            }
+
+            extractor.run(keyStore);
+            
+        } catch (Exception ex) {
+            logger.log(Level.SEVERE, "error while downloading certificate: " + ex.getMessage(), ex);
+        }
     }
 
     public static void execCertCheck(CommandLine cmd) {
@@ -121,9 +136,8 @@ public class Program {
         //
         // Valide arguments obligatoires
         //
-        
         mustHaveRequiredArgs(cmd, new String[]{OPT_KS_FILEPATH, OPT_CERT_FILEPATH});
-        
+
         // 
         // Arguments
         //
@@ -181,21 +195,21 @@ public class Program {
     }
 
     public static void execHttpGetRequest(CommandLine cmd) {
-        
-        mustHaveRequiredArgs(cmd, new String[] { OPT_URL });
-        
+
+        mustHaveRequiredArgs(cmd, new String[]{OPT_URL});
+
         try {
 
             var client = new local.projects.myhttpclient.utils.MyHttpClient();
             HttpProxyConfig proxyConf = null;
-                        
-            if (cmd.hasOption(OPT_KS_FILEPATH) && cmd.hasOption(OPT_KS_PASSWORD)) {
-                
+
+            if (hasKeyStoreParams(cmd)) {
+
                 String ksFilepath = cmd.getOptionValue(OPT_KS_FILEPATH);
                 String ksPassword = cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD) : null;
-                
+
                 KeyStore store = getKeyStore(ksFilepath, ksPassword);
-                                                
+
                 client.setKeyStore(store);
             }
 
@@ -204,23 +218,22 @@ public class Program {
                 String proxyHost = cmd.getOptionValue(OPT_PROXY_HOST);
                 int proxyPort = Integer.parseInt(cmd.getOptionValue(OPT_PROXY_PORT, "8080"));
 
-                proxyConf = new HttpProxyConfig(proxyPort, proxyHost);                
+                proxyConf = new HttpProxyConfig(proxyPort, proxyHost);
             }
 
             String response = client.get(new URL(cmd.getOptionValue(OPT_URL)), proxyConf);
-            
+
             System.out.println(response);
-            
 
         } catch (Exception ex) {
-            logger.log(Level.SEVERE, "error while executing http request: " + ex.getMessage(),  ex);
+            logger.log(Level.SEVERE, "error while executing http request: " + ex.getMessage(), ex);
         }
     }
 
     public static void execCertCheckOCSP(CommandLine cmd) {
 
-        mustHaveRequiredArgs(cmd, new String[] { OPT_CERT_FILEPATH, OPT_CERTCHAIN_FILEPATH});
-        
+        mustHaveRequiredArgs(cmd, new String[]{OPT_CERT_FILEPATH, OPT_CERTCHAIN_FILEPATH});
+
         X509Certificate peerCert;
         X509Certificate issuerCert;
 
@@ -228,14 +241,14 @@ public class Program {
         String issuerPath = cmd.getOptionValue(OPT_CERTCHAIN_FILEPATH);
 
         try {
-            
+
             peerCert = getCertificate(certPath);
             issuerCert = getCertificate(issuerPath);
 
-            List<String> ocspUrls = CertificateUtils.getAIALocations(peerCert);
+            List<String> ocspUrls = MyOcspChecker.getAIALocations(peerCert);
 
             // OCSP Request
-            Object result = CertificateUtils.getRevocationStatus(peerCert, issuerCert, 1, ocspUrls);
+            Object result = MyOcspChecker.getRevocationStatus(peerCert, issuerCert, 1, ocspUrls);
 
             // Result
             System.out.printf("Subject: %s\n", peerCert.getSubjectDN());
@@ -274,18 +287,22 @@ public class Program {
             targetCert = (X509Certificate) certFactory.generateCertificate(in);
         }
 
-        logger.log(Level.INFO, "certificat charg\u00e9: {0} ({1})", new String[]{targetCertFile, targetCert.getSubjectDN().getName()});
+        logger.log(Level.INFO, "certificate loaded: {0} ({1})", new String[]{targetCertFile, targetCert.getSubjectDN().getName()});
 
         return targetCert;
     }
-    
+
     private static void mustHaveRequiredArgs(CommandLine cmd, String[] requiredArgs) {
-         
+
         for (String arg : requiredArgs) {
             if (!cmd.hasOption(arg)) {
                 System.err.println("required argument: " + arg);
                 System.exit(1);
             }
         }
+    }
+
+    private static boolean hasKeyStoreParams(CommandLine cmd) {
+        return cmd.hasOption(OPT_KS_FILEPATH) && cmd.hasOption(OPT_KS_PASSWORD);
     }
 }

@@ -9,13 +9,18 @@ import java.security.*;
 import java.security.cert.*;
 import java.util.Base64;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  *
  * @author EMCECS
- * @see https://github.com/EMCECS/ssl-certificate-extractor/blob/master/src/main/java/SSLCertificateExtractor.java
+ * @see
+ * https://github.com/EMCECS/ssl-certificate-extractor/blob/master/src/main/java/SSLCertificateExtractor.java
  */
 public class SSLCertificateExtractor {
+
+    static final Logger logger = Logger.getLogger(MyHttpClient.class.getName());
 
     public static final int EXIT_OK = 0;
     public static final int EXIT_CONNECT_FAILURE = 1;
@@ -45,12 +50,12 @@ public class SSLCertificateExtractor {
         this.connect = connect;
     }
 
-    public void run() {
+    public void run(KeyStore certStore) {
         String[] parts = connect.split(":");
         if (parts.length != 2) {
-            printMessage("ERROR: connect string must be in the form of host:port");
-            System.exit(EXIT_ARG_ERROR);
+            exitWithErrorMessage("connect string must be in the form of host:port", EXIT_ARG_ERROR);
         }
+
         String host = parts[0];
         int port = Integer.parseInt(parts[1]);
 
@@ -59,39 +64,52 @@ public class SSLCertificateExtractor {
             ctx = SSLContext.getInstance("TLS");
             ctx.init(null, new TrustManager[]{new CustomTrustManager()}, null);
 
-            printMessage("Loading Java's root certificates...");
-            Set<TrustAnchor> anchors = getTrustAnchors();
-            
+            Set<TrustAnchor> anchors;
+
+            if (certStore != null) {
+                printMessage("loading certificates from keyStore...");
+
+                PKIXParameters params = new PKIXParameters(certStore);
+                anchors = params.getTrustAnchors();
+
+            } else {
+                printMessage("loading Java's root certificates...");
+
+                anchors = getDefaultTrustAnchors();
+            }
+
             if (verifyCert != null) {
                 printMessage("Loading your certificate from: " + verifyCert);
+
                 File f = new File(verifyCert);
+                
                 if (!f.exists()) {
-                    printMessage("ERROR: the file does not exist: " + verifyCert);
-                    System.exit(EXIT_VERIFY_CERT_NO_EXIST);
+                    exitWithErrorMessage("the file does not exist: " + verifyCert, EXIT_VERIFY_CERT_NO_EXIST);
                 }
+
                 try (InputStream in = new FileInputStream(f)) {
                     CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
                     certToVerify = (X509Certificate) certificateFactory.generateCertificate(in);
-                    in.close();
+                    
                 } catch (Exception e) {
-                    printMessage("ERROR: could not load certificate: " + e);
-                    System.exit(EXIT_VERIFY_CERT_LOAD_ERROR);
+                    exitWithErrorMessage("could not load certificate: " + e, EXIT_VERIFY_CERT_LOAD_ERROR);
                 }
             }
 
             printMessage("Connecting to " + connect);
-            Socket s = ctx.getSocketFactory().createSocket(host, port);
-            printMessage("Connected? " + s.isConnected());
-            OutputStream os = s.getOutputStream();
-            os.write("GET / HTTP/1.1\n\n".getBytes());
-            os.close();
-            s.close();
 
-            printMessage(String.format("The server sent %d certificates", certsSent));
+            try (Socket s = ctx.getSocketFactory().createSocket(host, port)) {
+                printMessage("Connected? " + s.isConnected());
 
-            printMessage("The root certificate appears to be " + lastIssuer.getName());
+                OutputStream os = s.getOutputStream();
+                os.write("GET / HTTP/1.1\n\n".getBytes());
+            }
+
+            printMessage(String.format("the server sent %d certificates", certsSent));
+            printMessage("the root certificate appears to be " + lastIssuer.getName());
 
             if (lastIssuer.equals(lastSubject)) {
+                
                 // The last certificate was self-signed.  This could either be a single self-signed cert or the root
                 // cert (root CA certs are always self-signed since they're the trust anchor).
                 if (certsSent == 1) {
@@ -114,10 +132,11 @@ public class SSLCertificateExtractor {
                         rootCert = anchor;
                     }
                 }
+                
             } else {
                 // Server didn't send the root CA cert.  See if Java recognizes it.
                 X509Certificate anchor = findAnchor(anchors, lastIssuer);
-                
+
                 if (anchor == null) {
                     // Java doesn't have it... did the user give us a cert to test?
                     if (verifyCert != null) {
@@ -129,10 +148,9 @@ public class SSLCertificateExtractor {
                             printMessage("ERROR: Java doesn't have this certificate as a trusted certificate AND "
                                     + "the certificate you passed to verify does not appear to match the required "
                                     + "root certificate.");
-
-                            printMessage(String.format("Your certificate: %s\nRequired root: %s",
-                                    certToVerify.getSubjectDN(), rootCert.getSubjectDN()));
-                            System.exit(EXIT_CERT_MISMATCH);
+                                                        
+                            exitWithErrorMessage(String.format("Your certificate: %s\nRequired root: %s",
+                                    certToVerify.getSubjectDN(), rootCert.getSubjectDN()), EXIT_CERT_MISMATCH);
                         }
                     } else {
                         printMessage("  and Java doesn't have this certificate as a trusted certificate.  This may "
@@ -149,6 +167,7 @@ public class SSLCertificateExtractor {
 
             // write out the root
             try (FileOutputStream out = new FileOutputStream(new File("root.pem"))) {
+                
                 Base64.Encoder encoder = Base64.getMimeEncoder(64, new byte[]{0x0a});
                 out.write(BEGIN_CERT.getBytes(StandardCharsets.US_ASCII));
                 out.write(0x0a);  // Newline
@@ -156,32 +175,21 @@ public class SSLCertificateExtractor {
                 out.write(0x0a);  // Newline
                 out.write(END_CERT.getBytes(StandardCharsets.US_ASCII));
                 out.write(0x0a);  // Newline
+                
                 printMessage("\nWrote root certificate to root.pem");
+                
             } catch (Exception e) {
-                printMessage("ERROR: could not write root.pem: " + e);
-                System.exit(EXIT_WRITE_ROOT_CERT_ERROR);
+                exitWithErrorMessage("could not write root.pem: " + e, EXIT_WRITE_ROOT_CERT_ERROR);
             }
+            
         } catch (NoSuchAlgorithmException e) {
             printMessage("ERROR: SSL Error: " + e);
-            System.exit(EXIT_SSL_ERROR);
         } catch (UnknownHostException e) {
-            printMessage("ERROR: Failed to lookup host: " + host);
-            System.exit(EXIT_CONNECT_FAILURE);
+            exitWithErrorMessage("Failed to lookup host: " + host, EXIT_CONNECT_FAILURE);
         } catch (IOException e) {
-            printMessage("ERROR: IO Failure: " + e);
-            System.exit(EXIT_CONNECT_FAILURE);
-        } catch (KeyManagementException e) {
-            printMessage("ERROR: SSL Error: " + e);
-            System.exit(EXIT_SSL_ERROR);
-        } catch (CertificateException e) {
-            printMessage("ERROR: SSL Error: " + e);
-            System.exit(EXIT_SSL_ERROR);
-        } catch (KeyStoreException e) {
-            printMessage("ERROR: SSL Error: " + e);
-            System.exit(EXIT_SSL_ERROR);
-        } catch (InvalidAlgorithmParameterException e) {
-            printMessage("ERROR: SSL Error: " + e);
-            System.exit(EXIT_SSL_ERROR);
+            exitWithErrorMessage("IO Failure: " + e, EXIT_CONNECT_FAILURE);
+        } catch (KeyManagementException | CertificateException | KeyStoreException | InvalidAlgorithmParameterException e) {
+            exitWithErrorMessage("SSL Error: " + e, EXIT_SSL_ERROR);
         }
     }
 
@@ -197,8 +205,14 @@ public class SSLCertificateExtractor {
 
     private void printMessage(String s) {
         if (!silent) {
-            System.out.println(s);
+            logger.log(Level.INFO, s);
         }
+    }
+
+    private void exitWithErrorMessage(String msg, int statusCode) {
+        logger.log(Level.SEVERE, msg);
+
+        System.exit(statusCode);
     }
 
     public boolean isSilent() {
@@ -225,7 +239,7 @@ public class SSLCertificateExtractor {
         this.verifyCert = verifyCert;
     }
 
-    private Set<TrustAnchor> getTrustAnchors() throws IOException, KeyStoreException, CertificateException,
+    private Set<TrustAnchor> getDefaultTrustAnchors() throws IOException, KeyStoreException, CertificateException,
             NoSuchAlgorithmException, InvalidAlgorithmParameterException {
         // Load the JDK's cacerts keystore file
         String filename = System.getProperty("java.home") + "/lib/security/cacerts".replace('/', File.separatorChar);

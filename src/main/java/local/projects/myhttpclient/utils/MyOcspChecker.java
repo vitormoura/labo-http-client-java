@@ -53,9 +53,9 @@ import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
  * @see
  * https://github.com/wso2-extensions/identity-x509-commons/blob/743a9a1852c4462d4b142dca1db81ea8fd764b74/components/validation/src/main/java/org/wso2/carbon/identity/x509Certificate/validation/CertificateValidationUtil.java
  */
-public abstract class CertificateUtils {
+public abstract class MyOcspChecker {
 
-    static final Logger logger = Logger.getLogger(CertificateUtils.class.getName());
+    static final Logger logger = Logger.getLogger(MyOcspChecker.class.getName());
 
     public static String getRevocationStatus(X509Certificate peerCert, X509Certificate issuerCert,
             int retryCount, List<String> locations)
@@ -94,6 +94,58 @@ public abstract class CertificateUtils {
 
         throw new Exception("Cant get Revocation Status from OCSP using any of the OCSP Urls "
                 + "for certificate with serial num:" + peerCert.getSerialNumber().toString(16) + " (" + peerCert.getSubjectDN() + ")");
+    }
+
+    public static List<String> getAIALocations(X509Certificate cert) {
+        byte[] aiaExtension = cert.getExtensionValue(Extension.authorityInfoAccess.getId());
+        ArrayList<String> result = new ArrayList<>();
+
+        if (aiaExtension == null) {
+            logger.log(Level.WARNING, "no authorityInfoAccess extension in the certificate ");
+            return result;
+        }
+
+        ASN1Sequence aiaExtSeq;
+
+        try {
+            aiaExtSeq = (ASN1Sequence) JcaX509ExtensionUtils.parseExtensionValue(aiaExtension);
+        } catch (IOException ex) {
+            logger.log(Level.WARNING, "error while parsing extension value", ex);
+            return result;
+        }
+
+        for (Enumeration<ASN1Sequence> aiaSequences = aiaExtSeq.getObjects(); aiaSequences.hasMoreElements();) {
+            ASN1Sequence aiaSequenceObj = aiaSequences.nextElement();
+            if (aiaSequenceObj.size() < 2) {
+                continue;
+            }
+
+            ASN1ObjectIdentifier aiaSequenceObjID = (ASN1ObjectIdentifier) aiaSequenceObj.getObjectAt(0);
+            if (!aiaSequenceObjID.equals(X509ObjectIdentifiers.id_ad_ocsp)) {
+                continue;
+            }
+
+            //DERTaggedObject aiaSequenceObjValue = (DERTaggedObject) aiaSequenceObj.getObjectAt(1);
+            DLTaggedObject aiaSequenceObjValue = (DLTaggedObject) aiaSequenceObj.getObjectAt(1);
+
+            if (aiaSequenceObjValue.getTagNo() != 6) {
+                continue;
+            }
+
+            var aiaURI = (DEROctetString) aiaSequenceObjValue.getBaseObject();
+
+            if (aiaURI == null) {
+                continue;
+            }
+
+            String aiaURIString = new String(aiaURI.getOctets());
+
+            logger.log(Level.INFO, "AIA location found: {0}", aiaURIString);
+
+            result.add(aiaURIString);
+        }
+
+        return result;
     }
 
     private static OCSPResp getOCSPResponse(String serviceUrl, OCSPReq request, int retryCount)
@@ -184,7 +236,6 @@ public abstract class CertificateUtils {
                         
             builder.setRequestExtensions(reqExtensions);
             //*/
-            
             return builder.build();
 
         } catch (Exception e) {
@@ -226,58 +277,6 @@ public abstract class CertificateUtils {
         }
 
         return ocspUrlList;
-    }
-
-    public static List<String> getAIALocations(X509Certificate cert) {
-        byte[] aiaExtension = cert.getExtensionValue(Extension.authorityInfoAccess.getId());
-        ArrayList<String> result = new ArrayList<>();
-
-        if (aiaExtension == null) {
-            logger.log(Level.WARNING, "no authorityInfoAccess extension in the certificate ");
-            return result;
-        }
-
-        ASN1Sequence aiaExtSeq;
-
-        try {
-            aiaExtSeq = (ASN1Sequence) JcaX509ExtensionUtils.parseExtensionValue(aiaExtension);
-        } catch (IOException ex) {
-            logger.log(Level.WARNING, "error while parsing extension value", ex);
-            return result;
-        }
-
-        for (Enumeration<ASN1Sequence> aiaSequences = aiaExtSeq.getObjects(); aiaSequences.hasMoreElements();) {
-            ASN1Sequence aiaSequenceObj = aiaSequences.nextElement();
-            if (aiaSequenceObj.size() < 2) {
-                continue;
-            }
-
-            ASN1ObjectIdentifier aiaSequenceObjID = (ASN1ObjectIdentifier) aiaSequenceObj.getObjectAt(0);
-            if (!aiaSequenceObjID.equals(X509ObjectIdentifiers.id_ad_ocsp)) {
-                continue;
-            }
-
-            //DERTaggedObject aiaSequenceObjValue = (DERTaggedObject) aiaSequenceObj.getObjectAt(1);
-            DLTaggedObject aiaSequenceObjValue = (DLTaggedObject) aiaSequenceObj.getObjectAt(1);
-
-            if (aiaSequenceObjValue.getTagNo() != 6) {
-                continue;
-            }
-
-            var aiaURI = (DEROctetString) aiaSequenceObjValue.getBaseObject();
-
-            if (aiaURI == null) {
-                continue;
-            }
-            
-            String aiaURIString = new String(aiaURI.getOctets());
-
-            logger.log(Level.INFO, "AIA location found: {0}", aiaURIString);
-            
-            result.add(aiaURIString);
-        }
-
-        return result;
     }
 
     private static List<String> getOcspUrlsFromAuthorityInfoAccess(AuthorityInformationAccess authorityInformationAccess) {
