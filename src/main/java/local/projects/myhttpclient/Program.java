@@ -35,7 +35,7 @@ import local.projects.myhttpclient.utils.SSLCertificateExtractor;
  *
  * @author darkflammeus
  */
-public class MyHttpClient {
+public class Program {
 
     static final String OPT_CMD = "cmd";
     static final String OPT_URL = "url";
@@ -46,7 +46,7 @@ public class MyHttpClient {
     static final String OPT_KS_PASSWORD = "keystore_password";
     static final String OPT_PROXY_HOST = "proxy_host";
     static final String OPT_PROXY_PORT = "proxy_port";
-    static final Logger logger = Logger.getLogger(MyHttpClient.class.getName());
+    static final Logger logger = Logger.getLogger(Program.class.getName());
 
     public static void main(String[] args) throws ParseException {
         

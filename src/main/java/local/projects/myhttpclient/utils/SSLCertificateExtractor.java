@@ -12,8 +12,8 @@ import java.util.Set;
 
 /**
  *
- * @author darkflammeus
- * @see  https://github.com/EMCECS/ssl-certificate-extractor/blob/master/src/main/java/SSLCertificateExtractor.java
+ * @author EMCECS
+ * @see https://github.com/EMCECS/ssl-certificate-extractor/blob/master/src/main/java/SSLCertificateExtractor.java
  */
 public class SSLCertificateExtractor {
 
@@ -61,6 +61,7 @@ public class SSLCertificateExtractor {
 
             printMessage("Loading Java's root certificates...");
             Set<TrustAnchor> anchors = getTrustAnchors();
+            
             if (verifyCert != null) {
                 printMessage("Loading your certificate from: " + verifyCert);
                 File f = new File(verifyCert);
@@ -116,6 +117,7 @@ public class SSLCertificateExtractor {
             } else {
                 // Server didn't send the root CA cert.  See if Java recognizes it.
                 X509Certificate anchor = findAnchor(anchors, lastIssuer);
+                
                 if (anchor == null) {
                     // Java doesn't have it... did the user give us a cert to test?
                     if (verifyCert != null) {
