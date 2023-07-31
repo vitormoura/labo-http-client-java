@@ -31,6 +31,15 @@ public class MyHttpClient {
     static final Logger logger = Logger.getLogger(MyHttpClient.class.getName());
 
     private KeyStore keyStore;
+    private HttpProxyConfig proxyConf;
+
+    public HttpProxyConfig getProxyConf() {
+        return proxyConf;
+    }
+
+    public void setProxyConf(HttpProxyConfig proxyConf) {
+        this.proxyConf = proxyConf;
+    }
 
     public KeyStore getKeyStore() {
         return keyStore;
@@ -40,11 +49,12 @@ public class MyHttpClient {
         this.keyStore = keyStore;
     }
 
-    public String get(URL url, HttpProxyConfig proxyConf) throws IOException {
+    public String get(URL url) throws IOException {
 
         SSLContext sslcontext;
         SSLContextBuilder sslContextBuilder = SSLContexts.custom();
 
+        
         try {
             
             KeyStore certStore = this.getKeyStore();

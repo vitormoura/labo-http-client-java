@@ -3,25 +3,13 @@
  */
 package local.projects.myhttpclient;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.net.URL;
 import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertPath;
-import java.security.cert.CertPathValidator;
-import java.security.cert.CertPathValidatorResult;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.PKIXParameters;
-import java.security.cert.PKIXRevocationChecker;
 import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import local.projects.myhttpclient.utils.Certificates;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -29,13 +17,17 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import local.projects.myhttpclient.utils.MyOcspChecker;
 import local.projects.myhttpclient.utils.HttpProxyConfig;
-import local.projects.myhttpclient.utils.SSLCertificateExtractor;
+import local.projects.myhttpclient.utils.MyCertificateChecker;
+import local.projects.myhttpclient.utils.MyHttpClient;
+import local.projects.myhttpclient.utils.MyCertificateExtractor;
 
 /**
  *
  * @author darkflammeus
  */
 public class Program {
+
+    static final Logger logger = Logger.getLogger(Program.class.getName());
 
     static final String OPT_CMD = "cmd";
     static final String OPT_URL = "url";
@@ -46,9 +38,8 @@ public class Program {
     static final String OPT_KS_PASSWORD = "keystore_password";
     static final String OPT_PROXY_HOST = "proxy_host";
     static final String OPT_PROXY_PORT = "proxy_port";
-    static final Logger logger = Logger.getLogger(Program.class.getName());
 
-    public static void main(String[] args) throws ParseException {
+    public static void main(String[] args) {
 
         Options options;
 
@@ -65,8 +56,20 @@ public class Program {
                 .addOption(OPT_PROXY_PORT, true, "proxy port (default 8080)");
 
         CommandLineParser parser = new DefaultParser();
-        CommandLine commandLine = parser.parse(options, args);
-        String commandName = commandLine.getOptionValue(OPT_CMD).toLowerCase();
+        CommandLine commandLine;
+        String commandName;
+
+        try {
+
+            commandLine = parser.parse(options, args);
+            commandName = commandLine.getOptionValue(OPT_CMD).toLowerCase();
+
+        } catch (ParseException ex) {
+            logger.log(Level.SEVERE, "error while parsing the command line", ex);
+            
+            System.exit(-1);
+            return;
+        }
 
         logger.log(Level.INFO, "running {0} command", commandName);
 
@@ -100,18 +103,18 @@ public class Program {
         try {
 
             String url = cmd.getOptionValue(OPT_HOSTPORT);
-            SSLCertificateExtractor extractor = new SSLCertificateExtractor(url);
+            MyCertificateExtractor extractor = new MyCertificateExtractor(url);
             KeyStore keyStore = null;
 
             if (hasKeyStoreParams(cmd)) {
                 String ksFilepath = cmd.getOptionValue(OPT_KS_FILEPATH);
                 String ksPassword = cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD) : null;
 
-                keyStore = getKeyStore(ksFilepath, ksPassword);
+                keyStore = Certificates.getKeyStore(ksFilepath, ksPassword);
             }
 
             extractor.run(keyStore);
-            
+
         } catch (Exception ex) {
             logger.log(Level.SEVERE, "error while downloading certificate: " + ex.getMessage(), ex);
         }
@@ -119,78 +122,21 @@ public class Program {
 
     public static void execCertCheck(CommandLine cmd) {
 
-        // https://docs.oracle.com/javase/8/docs/technotes/guides/security/certpath/CertPathProgGuide.html
-        // CertPath
-        // CertificateFactory: Peut créer des CertPaths depuis des listes de certificats ou des fichiers (generateCertPath)
-        // CertPathParameters (PKIXParameters)
-        // CertPathValidator
-        // CertPathValidatorResult
-        // CertPathBuilder
-        // CertPathBuilderResult
-        // CertStore (CertSelector, CRLSelector, X509CertSelector,X509CertSelector)
-        // X509CertSelector
-        // TrustAnchor
-        // PKIXBuilderParameters 
-        // PKIXCertPathChecker
-        // PKIXRevocationChecker
-        //
-        // Valide arguments obligatoires
-        //
         mustHaveRequiredArgs(cmd, new String[]{OPT_KS_FILEPATH, OPT_CERT_FILEPATH});
 
-        // 
-        // Arguments
-        //
         String keyStoreFilePath = cmd.getOptionValue(OPT_KS_FILEPATH);
         String keyStorePassword = cmd.getOptionValue(OPT_KS_PASSWORD);
         String targetCertFile = cmd.getOptionValue(OPT_CERT_FILEPATH);
 
-        // 
-        // Variables
-        //
-        KeyStore keyStore;
-        CertificateFactory certFactory;
-        X509Certificate targetCert;
-
         try {
 
-            keyStore = getKeyStore(keyStoreFilePath, keyStorePassword);
-            certFactory = CertificateFactory.getInstance("X.509");
+            MyCertificateChecker checker = new MyCertificateChecker(keyStoreFilePath, keyStorePassword);
+            String result = checker.check(targetCertFile, true);
 
-            //
-            // Ouvre fichier certificat à valider
-            // 
-            try (FileInputStream in = new FileInputStream(targetCertFile)) {
-                targetCert = (X509Certificate) certFactory.generateCertificate(in);
-            } catch (IOException ex) {
-                logger.log(Level.SEVERE, "erreur s'est produite lors de la recharge du certificat", ex);
-                System.exit(1);
-                return;
-            }
-
-            logger.log(Level.INFO, "certificat charg\u00e9: {0} ({1})", new String[]{targetCertFile, targetCert.getSubjectDN().getName()});
-
-            //
-            // Valide certificat
-            //
-            CertPathValidator pathValidator = CertPathValidator.getInstance(CertPathValidator.getDefaultType());
-            CertPath defaultCertPath = certFactory.generateCertPath(List.of(targetCert));
-
-            PKIXRevocationChecker certPathChecker = (PKIXRevocationChecker) pathValidator.getRevocationChecker();
-
-            // Config validation
-            PKIXParameters pathValidatorParams = new PKIXParameters(keyStore);
-
-            pathValidatorParams.addCertPathChecker(certPathChecker);
-            pathValidatorParams.setRevocationEnabled(true);
-
-            CertPathValidatorResult pathValidatorResult = pathValidator.validate(defaultCertPath, pathValidatorParams);
-
-            // resultat
-            System.out.println(pathValidatorResult.toString());
+            System.out.println(result);
 
         } catch (Exception ex) {
-            logger.log(Level.SEVERE, "une erreur s'est produite lors de la validation du certificat", ex);
+            logger.log(Level.SEVERE, "error while validating certificate: " + ex.getMessage(), ex);
         }
     }
 
@@ -200,28 +146,27 @@ public class Program {
 
         try {
 
-            var client = new local.projects.myhttpclient.utils.MyHttpClient();
-            HttpProxyConfig proxyConf = null;
+            MyHttpClient client = new local.projects.myhttpclient.utils.MyHttpClient();
 
             if (hasKeyStoreParams(cmd)) {
 
-                String ksFilepath = cmd.getOptionValue(OPT_KS_FILEPATH);
-                String ksPassword = cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD) : null;
+                var ksFilepath = cmd.getOptionValue(OPT_KS_FILEPATH);
+                var ksPassword = cmd.hasOption(OPT_KS_PASSWORD) ? cmd.getOptionValue(OPT_KS_PASSWORD) : null;
+                var ks = Certificates.getKeyStore(ksFilepath, ksPassword);
 
-                KeyStore store = getKeyStore(ksFilepath, ksPassword);
-
-                client.setKeyStore(store);
+                client.setKeyStore(ks);
             }
 
-            // Proxy
             if (cmd.hasOption(OPT_PROXY_HOST)) {
-                String proxyHost = cmd.getOptionValue(OPT_PROXY_HOST);
-                int proxyPort = Integer.parseInt(cmd.getOptionValue(OPT_PROXY_PORT, "8080"));
+                var proxyHost = cmd.getOptionValue(OPT_PROXY_HOST);
+                var proxyPort = Integer.parseInt(cmd.getOptionValue(OPT_PROXY_PORT, "8080"));
+                var proxyConf = new HttpProxyConfig(proxyPort, proxyHost);
 
-                proxyConf = new HttpProxyConfig(proxyPort, proxyHost);
+                client.setProxyConf(proxyConf);
             }
 
-            String response = client.get(new URL(cmd.getOptionValue(OPT_URL)), proxyConf);
+            var url = new URL(cmd.getOptionValue(OPT_URL));
+            var response = client.get(url);
 
             System.out.println(response);
 
@@ -242,8 +187,8 @@ public class Program {
 
         try {
 
-            peerCert = getCertificate(certPath);
-            issuerCert = getCertificate(issuerPath);
+            peerCert = Certificates.loadFromFile(certPath);
+            issuerCert = Certificates.loadFromFile(issuerPath);
 
             List<String> ocspUrls = MyOcspChecker.getAIALocations(peerCert);
 
@@ -256,40 +201,9 @@ public class Program {
             System.out.printf("OCSP status: %s\n", result);
 
         } catch (Exception ex) {
-            logger.log(Level.SEVERE, "une erreur s'est produite lors du test OCSP", ex);
+            logger.log(Level.SEVERE, "error while checking OCSP: " + ex.getMessage(), ex);
         }
 
-    }
-
-    private static KeyStore getKeyStore(String keyStoreFilePath, String keyStorePassword) throws Exception {
-        KeyStore keyStore;
-        File certStoreFile = new File(keyStoreFilePath);
-
-        try {
-
-            char[] keystorePasswordChars = keyStorePassword != null ? keyStorePassword.toCharArray() : null;
-            keyStore = KeyStore.getInstance(certStoreFile, keystorePasswordChars);
-
-            logger.log(Level.INFO, "keystore loaded: {0}", keyStoreFilePath);
-
-            return keyStore;
-
-        } catch (IOException | KeyStoreException | NoSuchAlgorithmException | CertificateException ex) {
-            throw ex;
-        }
-    }
-
-    private static X509Certificate getCertificate(String targetCertFile) throws IOException, FileNotFoundException, CertificateException {
-        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
-        X509Certificate targetCert;
-
-        try (FileInputStream in = new FileInputStream(targetCertFile)) {
-            targetCert = (X509Certificate) certFactory.generateCertificate(in);
-        }
-
-        logger.log(Level.INFO, "certificate loaded: {0} ({1})", new String[]{targetCertFile, targetCert.getSubjectDN().getName()});
-
-        return targetCert;
     }
 
     private static void mustHaveRequiredArgs(CommandLine cmd, String[] requiredArgs) {
