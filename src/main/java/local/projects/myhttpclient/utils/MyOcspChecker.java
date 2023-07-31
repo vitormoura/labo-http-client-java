@@ -53,7 +53,7 @@ import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
  * @see
  * https://github.com/wso2-extensions/identity-x509-commons/blob/743a9a1852c4462d4b142dca1db81ea8fd764b74/components/validation/src/main/java/org/wso2/carbon/identity/x509Certificate/validation/CertificateValidationUtil.java
  */
-public abstract class MyOcspChecker {
+public final class MyOcspChecker {
 
     static final Logger logger = Logger.getLogger(MyOcspChecker.class.getName());
 
@@ -236,6 +236,7 @@ public abstract class MyOcspChecker {
                         
             builder.setRequestExtensions(reqExtensions);
             //*/
+            
             return builder.build();
 
         } catch (Exception e) {

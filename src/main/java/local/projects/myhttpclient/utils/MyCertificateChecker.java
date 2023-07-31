@@ -7,12 +7,12 @@ package local.projects.myhttpclient.utils;
 import java.security.KeyStore;
 import java.security.cert.CertPath;
 import java.security.cert.CertPathValidator;
-import java.security.cert.CertPathValidatorResult;
 import java.security.cert.CertificateFactory;
 import java.security.cert.PKIXParameters;
 import java.security.cert.PKIXRevocationChecker;
 import java.security.cert.X509Certificate;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -46,22 +46,16 @@ public class MyCertificateChecker {
         // TrustAnchor
         // PKIXBuilderParameters 
         // PKIXCertPathChecker
-        // PKIXRevocationChecker        
-        KeyStore keyStore;
-        CertificateFactory certFactory;
-        X509Certificate targetCert;
-
-        keyStore = Certificates.getKeyStore(keyStoreFilePath, keyStorePassword);
-        certFactory = CertificateFactory.getInstance("X.509");
-
-        //
-        // Ouvre fichier certificat à valider
-        // 
-        targetCert = Certificates.loadFromFile(certFilePath);
-
+        // PKIXRevocationChecker   
+                
+        KeyStore keyStore = Certificates.getKeyStore(keyStoreFilePath, keyStorePassword);
+        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+        X509Certificate targetCert = Certificates.loadFromFile(certFilePath);
+        
         //
         // Valide certificat
         //
+        
         CertPathValidator pathValidator = CertPathValidator.getInstance(CertPathValidator.getDefaultType());
         CertPath defaultCertPath = certFactory.generateCertPath(List.of(targetCert));
 
@@ -73,7 +67,9 @@ public class MyCertificateChecker {
         pathValidatorParams.addCertPathChecker(certPathChecker);
         pathValidatorParams.setRevocationEnabled(checkRevocation);
 
-        CertPathValidatorResult pathValidatorResult = pathValidator.validate(defaultCertPath, pathValidatorParams);
+        logger.log(Level.INFO, "executing certificate validation (check revocation: {0})", checkRevocation);
+        
+        var pathValidatorResult = pathValidator.validate(defaultCertPath, pathValidatorParams);
 
         return pathValidatorResult.toString();
 
