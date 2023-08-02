@@ -66,7 +66,7 @@ public class Program {
 
         } catch (ParseException ex) {
             logger.log(Level.SEVERE, "error while parsing the command line", ex);
-            
+
             System.exit(-1);
             return;
         }
@@ -121,7 +121,6 @@ public class Program {
     }
 
     public static void execCertCheck(CommandLine cmd) {
-
         mustHaveRequiredArgs(cmd, new String[]{OPT_KS_FILEPATH, OPT_CERT_FILEPATH});
 
         String keyStoreFilePath = cmd.getOptionValue(OPT_KS_FILEPATH);
@@ -141,7 +140,6 @@ public class Program {
     }
 
     public static void execHttpGetRequest(CommandLine cmd) {
-
         mustHaveRequiredArgs(cmd, new String[]{OPT_URL});
 
         try {
@@ -157,13 +155,7 @@ public class Program {
                 client.setKeyStore(ks);
             }
 
-            if (cmd.hasOption(OPT_PROXY_HOST)) {
-                var proxyHost = cmd.getOptionValue(OPT_PROXY_HOST);
-                var proxyPort = Integer.parseInt(cmd.getOptionValue(OPT_PROXY_PORT, "8080"));
-                var proxyConf = new HttpProxyConfig(proxyPort, proxyHost);
-
-                client.setProxyConf(proxyConf);
-            }
+            client.setProxyConf(getProxyConfigFrom(cmd));
 
             var url = new URL(cmd.getOptionValue(OPT_URL));
             var response = client.get(url);
@@ -176,7 +168,6 @@ public class Program {
     }
 
     public static void execCertCheckOCSP(CommandLine cmd) {
-
         mustHaveRequiredArgs(cmd, new String[]{OPT_CERT_FILEPATH, OPT_CERTCHAIN_FILEPATH});
 
         X509Certificate peerCert;
@@ -193,7 +184,10 @@ public class Program {
             List<String> ocspUrls = MyOcspChecker.getAIALocations(peerCert);
 
             // OCSP Request
-            Object result = MyOcspChecker.getRevocationStatus(peerCert, issuerCert, 1, ocspUrls);
+            MyOcspChecker checker = new MyOcspChecker();
+            checker.setProxy(getProxyConfigFrom(cmd));
+
+            String result = checker.getRevocationStatus(peerCert, issuerCert, 1, ocspUrls);
 
             // Result
             System.out.printf("Subject: %s\n", peerCert.getSubjectDN());
@@ -218,5 +212,16 @@ public class Program {
 
     private static boolean hasKeyStoreParams(CommandLine cmd) {
         return cmd.hasOption(OPT_KS_FILEPATH) && cmd.hasOption(OPT_KS_PASSWORD);
+    }
+    
+    private static HttpProxyConfig getProxyConfigFrom(CommandLine cmd) {
+        if (!cmd.hasOption(OPT_PROXY_HOST)) {
+            return null;
+        }
+
+        var proxyHost = cmd.getOptionValue(OPT_PROXY_HOST);
+        var proxyPort = Integer.parseInt(cmd.getOptionValue(OPT_PROXY_PORT, "8080"));
+
+        return new HttpProxyConfig(proxyPort, proxyHost);
     }
 }

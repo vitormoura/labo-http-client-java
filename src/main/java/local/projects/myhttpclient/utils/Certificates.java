@@ -61,4 +61,11 @@ public final class Certificates {
         }
     }
     
+    public static KeyStore getDefaultKeyStore() throws Exception {
+        String filename = System.getProperty("java.home") + "/lib/security/cacerts".replace('/', File.separatorChar);
+        String password = "changeit";
+        
+        return getKeyStore(filename, password);
+    }
+    
 }

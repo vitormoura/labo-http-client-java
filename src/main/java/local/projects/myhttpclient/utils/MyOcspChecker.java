@@ -14,8 +14,10 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import static org.apache.http.HttpHeaders.CONTENT_TYPE;
+import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.conn.params.ConnRoutePNames;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.DefaultHttpClient;
@@ -57,7 +59,18 @@ public final class MyOcspChecker {
 
     static final Logger logger = Logger.getLogger(MyOcspChecker.class.getName());
 
-    public static String getRevocationStatus(X509Certificate peerCert, X509Certificate issuerCert,
+    private HttpProxyConfig proxy;
+
+    public HttpProxyConfig getProxy() {
+        return proxy;
+    }
+
+    public void setProxy(HttpProxyConfig proxy) {
+        this.proxy = proxy;
+    }
+    
+    
+    public String getRevocationStatus(X509Certificate peerCert, X509Certificate issuerCert,
             int retryCount, List<String> locations)
             throws Exception {
 
@@ -148,7 +161,7 @@ public final class MyOcspChecker {
         return result;
     }
 
-    private static OCSPResp getOCSPResponse(String serviceUrl, OCSPReq request, int retryCount)
+    private OCSPResp getOCSPResponse(String serviceUrl, OCSPReq request, int retryCount)
             throws Exception {
 
         OCSPResp ocspResp = null;
@@ -159,6 +172,14 @@ public final class MyOcspChecker {
             setRequestProperties(request.getEncoded(), httpPost);
 
             DefaultHttpClient httpClient = new DefaultHttpClient();
+            
+            if(null != getProxy())
+            {
+               logger.log(Level.INFO, "using proxy config: {0}", getProxy());
+                
+               HttpHost proxyHostPort = new HttpHost(getProxy().getHost(), getProxy().getPort());
+               httpClient.getParams().setParameter(ConnRoutePNames.DEFAULT_PROXY, proxyHostPort);
+            }
 
             HttpResponse httpResponse = httpClient.execute(httpPost);
 
@@ -168,18 +189,19 @@ public final class MyOcspChecker {
                         + "Response code is " + httpResponse.getStatusLine().getStatusCode());
             }
 
-            InputStream in = httpResponse.getEntity().getContent();
-
-            ocspResp = new OCSPResp(in);
+            try (InputStream in = httpResponse.getEntity().getContent()) {
+                ocspResp = new OCSPResp(in);
+            }
 
         } catch (IOException e) {
             if (retryCount == 0) {
                 throw new Exception("Cannot get ocspResponse from url: " + serviceUrl, e);
             } else {
-                logger.log(Level.INFO, "Cant reach URI: {0}. Retrying to connect - attempt {1}", new Object[]{serviceUrl, retryCount});
+                logger.log(Level.INFO, "cant reach URI: {0}. retrying to connect - attempt {1}", new Object[]{serviceUrl, retryCount});
                 getOCSPResponse(serviceUrl, request, --retryCount);
             }
         }
+        
         return ocspResp;
     }
 
@@ -189,7 +211,7 @@ public final class MyOcspChecker {
                 "application/ocsp-request");
         httpPost.addHeader("Accept",
                 "application/ocsp-response");
-
+                
         httpPost.setEntity(new ByteArrayEntity(message, ContentType.create(CONTENT_TYPE)));
     }
 
